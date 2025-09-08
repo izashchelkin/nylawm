@@ -36,17 +36,29 @@ struct Rect {
     int32_t height;
 };
 
-struct Client {
-    xcb_window_t window;
-    Rect rect;
+struct ClientState {
+    // xcb_window_t window;
+    Rect geom;
+    uint8_t workspace_index;
+    uint8_t stack_pos;
+    uint8_t index;
+    uint8_t flags;
+
+    static constexpr uint8_t Visible = 1 << 0;
 };
 
-struct WorkspaceStack {
-    std::vector<Client> clients;
+struct WorkspaceStackState {
+    std::vector<xcb_window_t> clients;
 };
 
-struct Workspace {
-    std::vector<WorkspaceStack> stacks;
+struct WorkspaceState {
+    std::vector<WorkspaceStackState> stacks;
+};
+
+struct LayoutState {
+    std::unordered_map<xcb_window_t, ClientState> clients;
+    std::vector<WorkspaceState> workspaces;
+    uint8_t active_workspace_index;
 };
 
 void event_loop(xcb_connection_t* conn, bool* running,
