@@ -1,2 +1,0 @@
-https://www.x.org/archive/X11R7.5/doc/compositeproto/compositeproto.txt
-
