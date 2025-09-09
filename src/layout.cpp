@@ -9,6 +9,17 @@ namespace nyla {
 
 void layout_place_new_client(xcb_connection_t* conn, LayoutState& layout_state,
                              xcb_window_t client_window) {
+    auto& active_workspace =
+        layout_state.workspaces.at(layout_state.active_workspace_index);
+    auto& active_stack =
+        active_workspace.stacks.at(layout_state.active_stack_index);
+
+    layout_state.clients.emplace(
+        client_window,
+        ClientState{.workspace_index = layout_state.active_workspace_index,
+                    .stack_pos = active_stack.clients.size() < 4
+                                     ? layout_state.active_stack_index
+                                     : });
 }
 
 void layout_update(xcb_connection_t* conn, LayoutState& layout_state,
