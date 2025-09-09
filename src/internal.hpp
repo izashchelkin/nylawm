@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace nyla {
@@ -48,7 +49,7 @@ struct ClientState {
 };
 
 struct WorkspaceStackState {
-    std::vector<xcb_window_t> clients;
+    std::unordered_set<xcb_window_t> clients;
 };
 
 struct WorkspaceState {
@@ -59,6 +60,7 @@ struct LayoutState {
     std::unordered_map<xcb_window_t, ClientState> clients;
     std::vector<WorkspaceState> workspaces;
     uint8_t active_workspace_index;
+    uint8_t active_stack_index;
 };
 
 void event_loop(xcb_connection_t* conn, bool* running,
