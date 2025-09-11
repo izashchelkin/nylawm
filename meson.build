@@ -7,6 +7,7 @@ lib = library(
     'src/event_loop.cpp',
     'src/keyboard.cpp',
     'src/spawn.cpp',
+    'src/layout.cpp',
     'src/handlers/configure_request.cpp',
     'src/handlers/error.cpp',
     'src/handlers/key_press.cpp',

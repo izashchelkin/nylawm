@@ -43,9 +43,6 @@ struct ClientState {
     uint8_t workspace_index;
     uint8_t stack_pos;
     uint8_t index;
-    uint8_t flags;
-
-    static constexpr uint8_t Visible = 1 << 0;
 };
 
 struct WorkspaceStackState {
@@ -63,11 +60,17 @@ struct LayoutState {
     uint8_t active_stack_index;
 };
 
-void event_loop(xcb_connection_t* conn, bool* running,
-                KeyboardState& keyboard_state);
+void event_loop(xcb_connection_t* conn, xcb_screen_t* screen, bool* running,
+                KeyboardState& keyboard_state, LayoutState& layout_state);
 
+void layout_update(xcb_connection_t* conn, LayoutState& layout_state,
+                   xcb_screen_t* screen);
 void handle_error(xcb_generic_error_t& error);
-void handle_map_request(xcb_connection_t* conn, xcb_map_request_event_t& event);
+void handle_map_request(xcb_connection_t* conn, xcb_map_request_event_t& event,
+                        LayoutState& layout_state);
+void handle_unmap_notify(xcb_connection_t* conn,
+                         xcb_unmap_notify_event_t& event,
+                         LayoutState& layout_state);
 void handle_configure_request(xcb_connection_t* conn,
                               xcb_configure_request_event_t& event);
 void handle_key_press(xcb_connection_t* conn, KeyboardState keyboard_state,

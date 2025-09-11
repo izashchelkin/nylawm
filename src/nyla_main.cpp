@@ -48,7 +48,9 @@ int main() {
     grab_keys(conn, screen->root, keyboard_state);
 
     bool running = true;
-    event_loop(conn, &running, keyboard_state);
+    LayoutState layout_state{};
+
+    event_loop(conn, screen, &running, keyboard_state, layout_state);
 
     xcb_disconnect(conn);
     return 0;

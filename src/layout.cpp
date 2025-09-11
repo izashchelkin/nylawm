@@ -2,28 +2,14 @@
 #include <xcb/xproto.h>
 
 #include <cstdint>
+#include <cstring>
 
 #include "internal.hpp"
 
 namespace nyla {
 
-void layout_place_new_client(xcb_connection_t* conn, LayoutState& layout_state,
-                             xcb_window_t client_window) {
-    auto& active_workspace =
-        layout_state.workspaces.at(layout_state.active_workspace_index);
-    auto& active_stack =
-        active_workspace.stacks.at(layout_state.active_stack_index);
-
-    layout_state.clients.emplace(
-        client_window,
-        ClientState{.workspace_index = layout_state.active_workspace_index,
-                    .stack_pos = active_stack.clients.size() < 4
-                                     ? layout_state.active_stack_index
-                                     : });
-}
-
 void layout_update(xcb_connection_t* conn, LayoutState& layout_state,
-                   xcb_screen_t& screen) {
+                   xcb_screen_t* screen) {
     for (auto& [client_window, client] : layout_state.clients) {
         while (client.workspace_index >= layout_state.workspaces.size())
             layout_state.workspaces.emplace_back(WorkspaceState{});
@@ -34,25 +20,21 @@ void layout_update(xcb_connection_t* conn, LayoutState& layout_state,
 
         auto& stack = workspace.stacks.at(client.stack_pos);
 
-        bool must_be_visible =
-            client.workspace_index == layout_state.active_workspace_index &&
-            client.stack_pos == layout_state.active_stack_index;
+        const auto expected_geom =
+            Rect{.x = 0,
+                 .y = 0,
+                 .width = static_cast<int32_t>(screen->width_in_pixels /
+                                               (stack.clients.size() + 1)),
+                 .height = screen->height_in_pixels};
 
-        if (client.flags & ClientState::Visible) {
-            if (!must_be_visible) {
-                xcb_configure_window(conn, client_window,
-                                     XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y,
-                                     (uint32_t[]){screen.width_in_pixels,
-                                                  screen.height_in_pixels});
-                client.flags &= ~ClientState::Visible;
-            }
-        } else {
-            if (must_be_visible) {
-                xcb_configure_window(conn, client_window,
-                                     XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y,
-                                     (uint32_t[]){0, 0});
-                client.flags |= ClientState::Visible;
-            }
+        if (memcmp(&client.geom, &expected_geom, sizeof(Rect))) {
+            xcb_configure_window(
+                conn, client_window,
+                (XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+                 XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT),
+                (int32_t[]){expected_geom.x, expected_geom.y,
+                            expected_geom.width, expected_geom.height});
+            client.geom = expected_geom;
         }
     }
 }

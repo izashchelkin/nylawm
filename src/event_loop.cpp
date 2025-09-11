@@ -7,9 +7,10 @@
 
 namespace nyla {
 
-void event_loop(xcb_connection_t* conn, bool* running,
-                KeyboardState& keyboard_state) {
+void event_loop(xcb_connection_t* conn, xcb_screen_t* screen, bool* running,
+                KeyboardState& keyboard_state, LayoutState& layout_state) {
     while (*running) {
+        layout_update(conn, layout_state, screen);
         xcb_flush(conn);
         xcb_generic_event_t* event = xcb_wait_for_event(conn);
         if (!event) break;
@@ -22,7 +23,14 @@ void event_loop(xcb_connection_t* conn, bool* running,
             }
             case XCB_MAP_REQUEST: {
                 handle_map_request(
-                    conn, *reinterpret_cast<xcb_map_request_event_t*>(event));
+                    conn, *reinterpret_cast<xcb_map_request_event_t*>(event),
+                    layout_state);
+                break;
+            }
+            case XCB_UNMAP_NOTIFY: {
+                handle_unmap_notify(
+                    conn, *reinterpret_cast<xcb_unmap_notify_event_t*>(event),
+                    layout_state);
                 break;
             }
             case XCB_CONFIGURE_REQUEST: {
