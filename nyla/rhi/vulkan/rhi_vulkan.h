@@ -1,32 +1,49 @@
 #pragma once
 
 #include <cstdint>
+#include <string_view>
 
-#include "absl/log/check.h"
-#include "absl/log/log.h"
+#include "nyla/commons/assert.h"
 #include "nyla/commons/containers/inline_vec.h"
 #include "nyla/commons/handle_pool.h"
+#include "nyla/commons/log.h"
+#include "nyla/commons/memory/align.h"
 #include "nyla/rhi/rhi.h"
 #include "nyla/rhi/rhi_buffer.h"
 #include "nyla/rhi/rhi_cmdlist.h"
 #include "nyla/rhi/rhi_descriptor.h"
+#include "nyla/rhi/rhi_pass.h"
 #include "nyla/rhi/rhi_pipeline.h"
 #include "nyla/rhi/rhi_sampler.h"
 #include "nyla/rhi/rhi_texture.h"
 #include "vulkan/vk_enum_string_helper.h"
 #include "vulkan/vulkan_core.h"
 
-#define VK_GET_INSTANCE_PROC_ADDR(name) reinterpret_cast<PFN_##name>(vkGetInstanceProcAddr(vk.instance, #name))
+#define VK_GET_INSTANCE_PROC_ADDR(name) reinterpret_cast<PFN_##name>(vkGetInstanceProcAddr(this->m_Instance, #name))
 
-namespace nyla::rhi_vulkan_internal
+namespace nyla
+{
+
+namespace rhi_vulkan_internal
 {
 
 inline auto VkCheckImpl(VkResult res)
 {
-    if (res == VK_ERROR_DEVICE_LOST)
-        LOG(ERROR) << "Last checkpoint: " << RhiGetLastCheckpointData(RhiQueueType::Graphics);
+    switch (res)
+    {
+    case VK_SUCCESS:
+        break;
 
-    CHECK_EQ(res, VK_SUCCESS) << "Vulkan error: " << string_VkResult(res);
+    case VK_ERROR_DEVICE_LOST:
+        // TODO:
+        // NYLA_LOG("Last checkpoint: %I64d", RhiGetLastCheckpointData(RhiQueueType::Graphics));
+        // FALLTHROUGH
+
+    default: {
+        NYLA_LOG("Vulkan error: %s", string_VkResult(res));
+        NYLA_ASSERT(false);
+    }
+    }
 };
 #define VK_CHECK(res) VkCheckImpl(res)
 
@@ -40,42 +57,6 @@ struct DeviceQueue
     uint64_t timelineNext;
 };
 
-struct VulkanData
-{
-    VkAllocationCallbacks *alloc;
-
-    RhiFlags flags;
-
-    VkInstance instance;
-    VkDevice dev;
-    VkPhysicalDevice physDev;
-    VkPhysicalDeviceProperties physDevProps;
-    VkPhysicalDeviceMemoryProperties physDevMemProps;
-    VkDescriptorPool descriptorPool;
-
-    PlatformWindow window;
-    VkSurfaceKHR surface;
-    VkSwapchainKHR swapchain;
-
-    uint32_t swapchainTextureIndex;
-    uint32_t swapchainTexturesCount;
-    std::array<RhiTexture, kRhiMaxNumSwapchainTextures> swapchainTextures;
-    std::array<VkSemaphore, kRhiMaxNumSwapchainTextures> renderFinishedSemaphores;
-    std::array<VkSemaphore, kRhiMaxNumFramesInFlight> swapchainAcquireSemaphores;
-
-    DeviceQueue graphicsQueue;
-    uint32_t frameIndex;
-    uint32_t numFramesInFlight;
-    std::array<RhiCmdList, kRhiMaxNumFramesInFlight> graphicsQueueCmd;
-    std::array<uint64_t, kRhiMaxNumFramesInFlight> graphicsQueueCmdDone;
-
-    DeviceQueue transferQueue;
-    RhiCmdList transferQueueCmd;
-    uint64_t transferQueueCmdDone;
-};
-
-extern VulkanData vk;
-
 struct VulkanBufferData
 {
     VkBuffer buffer;
@@ -88,6 +69,17 @@ struct VulkanBufferData
     uint32_t dirtyBegin;
     uint32_t dirtyEnd;
     bool dirty;
+};
+
+struct VulkanBufferViewData
+{
+    RhiBuffer buffer;
+    uint32_t size;
+    uint32_t offset;
+    uint32_t range;
+    bool dynamic;
+
+    bool descriptorWritten;
 };
 
 struct VulkanCmdListData
@@ -110,17 +102,32 @@ struct VulkanTextureData
 {
     bool isSwapchain;
     VkImage image;
-    VkImageView imageView;
     VkDeviceMemory memory;
     RhiTextureState state;
     VkImageLayout layout;
     VkFormat format;
     VkExtent3D extent;
+
+    RhiTextureView view;
+};
+
+struct VulkanTextureViewData
+{
+    RhiTexture texture;
+
+    VkImageView imageView;
+    VkImageViewType imageViewType;
+    VkFormat format;
+    VkImageSubresourceRange subresourceRange;
+
+    bool descriptorWritten;
 };
 
 struct VulkanSamplerData
 {
     VkSampler sampler;
+
+    bool descriptorWritten;
 };
 
 struct VulkanDescriptorSetLayoutData
@@ -135,47 +142,191 @@ struct VulkanDescriptorSetData
     RhiDescriptorSetLayout layout;
 };
 
-struct RhiHandles
-{
-    HandlePool<RhiDescriptorSetLayout, VulkanDescriptorSetLayoutData, 16> descriptorSetLayouts;
-    HandlePool<RhiDescriptorSet, VulkanDescriptorSetData, 16> descriptorSets;
-    HandlePool<RhiBuffer, VulkanBufferData, 16> buffers;
-    HandlePool<RhiCmdList, VulkanCmdListData, 16> cmdLists;
-    HandlePool<RhiShader, VkShaderModule, 16> shaders;
-    HandlePool<RhiGraphicsPipeline, VulkanPipelineData, 16> graphicsPipelines;
-    HandlePool<RhiTexture, VulkanTextureData, 128> textures;
-    HandlePool<RhiSampler, VulkanSamplerData, 16> samplers;
-};
-extern RhiHandles rhiHandles;
-
-auto DebugMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-                            VkDebugUtilsMessageTypeFlagsEXT messageType,
-                            const VkDebugUtilsMessengerCallbackDataEXT *callbackData, void *userData) -> VkBool32;
-
 void CreateSwapchain();
 
-auto RhiCreateTextureFromSwapchainImage(VkImage image, VkSurfaceFormatKHR surfaceFormat, VkExtent2D surfaceExtent)
-    -> RhiTexture;
-void RhiDestroySwapchainTexture(RhiTexture texture);
+} // namespace rhi_vulkan_internal
 
-auto CreateTimeline(uint64_t initialValue) -> VkSemaphore;
-void WaitTimeline(VkSemaphore timeline, uint64_t waitValue);
+using namespace rhi_vulkan_internal;
 
-auto FindMemoryTypeIndex(VkMemoryRequirements memRequirements, VkMemoryPropertyFlags properties) -> uint32_t;
+class Rhi::Impl
+{
+  public:
+    auto CreateTimeline(uint64_t initialValue) -> VkSemaphore;
+    void WaitTimeline(VkSemaphore timeline, uint64_t waitValue);
 
-void VulkanNameHandle(VkObjectType type, uint64_t handle, std::string_view name);
+    auto FindMemoryTypeIndex(VkMemoryRequirements memRequirements, VkMemoryPropertyFlags properties) -> uint32_t;
 
-auto ConvertRhiBufferUsageIntoVkBufferUsageFlags(RhiBufferUsage usage) -> VkBufferUsageFlags;
+    void VulkanNameHandle(VkObjectType type, uint64_t handle, std::string_view name);
 
-auto ConvertRhiMemoryUsageIntoVkMemoryPropertyFlags(RhiMemoryUsage usage) -> VkMemoryPropertyFlags;
+    auto ConvertBufferUsageIntoVkBufferUsageFlags(RhiBufferUsage usage) -> VkBufferUsageFlags;
 
-auto ConvertRhiVertexFormatIntoVkFormat(RhiVertexFormat format) -> VkFormat;
+    auto ConvertMemoryUsageIntoVkMemoryPropertyFlags(RhiMemoryUsage usage) -> VkMemoryPropertyFlags;
 
-auto ConvertRhiTextureFormatIntoVkFormat(RhiTextureFormat format) -> VkFormat;
-auto ConvertVkFormatIntoRhiTextureFormat(VkFormat format) -> RhiTextureFormat;
+    auto ConvertVertexFormatIntoVkFormat(RhiVertexFormat format) -> VkFormat;
 
-auto ConvertRhiTextureUsageToVkImageUsageFlags(RhiTextureUsage usage) -> VkImageUsageFlags;
+    auto ConvertTextureFormatIntoVkFormat(RhiTextureFormat format) -> VkFormat;
+    auto ConvertVkFormatIntoTextureFormat(VkFormat format) -> RhiTextureFormat;
 
-auto ConvertRhiShaderStageIntoVkShaderStageFlags(RhiShaderStage stageFlags) -> VkShaderStageFlags;
+    auto ConvertTextureUsageToVkImageUsageFlags(RhiTextureUsage usage) -> VkImageUsageFlags;
 
-} // namespace nyla::rhi_vulkan_internal
+    auto ConvertShaderStageIntoVkShaderStageFlags(RhiShaderStage stageFlags) -> VkShaderStageFlags;
+
+    auto DebugMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+                                VkDebugUtilsMessageTypeFlagsEXT messageType,
+                                const VkDebugUtilsMessengerCallbackDataEXT *callbackData) -> VkBool32;
+
+    //
+
+    void Init(const RhiInitDesc &);
+    auto GetMinUniformBufferOffsetAlignment() -> uint32_t;
+    auto GetOptimalBufferCopyOffsetAlignment() -> uint32_t;
+
+    auto FrameBegin() -> RhiCmdList;
+    void FrameEnd();
+    auto GetNumFramesInFlight() -> uint32_t
+    {
+        return m_Limits.numFramesInFlight;
+    }
+    auto GetFrameIndex() -> uint32_t;
+    auto FrameGetCmdList() -> RhiCmdList;
+
+    auto CreateSampler(const RhiSamplerDesc &desc) -> RhiSampler;
+    void DestroySampler(RhiSampler sampler);
+
+    auto CreateBuffer(const RhiBufferDesc &desc) -> RhiBuffer;
+    void NameBuffer(RhiBuffer buf, std::string_view name);
+    void DestroyBuffer(RhiBuffer buffer);
+    auto GetBufferSize(RhiBuffer buffer) -> uint32_t;
+    auto MapBuffer(RhiBuffer buffer) -> char *;
+    void UnmapBuffer(RhiBuffer buffer);
+    void CmdTransitionBuffer(RhiCmdList cmd, RhiBuffer buffer, RhiBufferState newState);
+    void CmdCopyBuffer(RhiCmdList cmd, RhiBuffer dst, uint32_t dstOffset, RhiBuffer src, uint32_t srcOffset,
+                       uint32_t size);
+    void CmdUavBarrierBuffer(RhiCmdList cmd, RhiBuffer buffer);
+    void BufferMarkWritten(RhiBuffer buffer, uint32_t offset, uint32_t size);
+
+    auto CreateTexture(RhiTextureDesc desc) -> RhiTexture;
+    auto GetTextureInfo(RhiTexture texture) -> RhiTextureInfo;
+    void DestroyTexture(RhiTexture texture);
+    void CmdTransitionTexture(RhiCmdList cmd, RhiTexture texture, RhiTextureState newState);
+    void CmdCopyTexture(RhiCmdList cmd, RhiTexture dst, RhiBuffer src, uint32_t srcOffset, uint32_t size);
+
+    auto CreateTextureView(const RhiTextureViewDesc &desc) -> RhiTextureView;
+    void DestroyTextureView(RhiTextureView textureView);
+
+    void EnsureHostWritesVisible(VkCommandBuffer cmdbuf, VulkanBufferData &bufferData);
+
+    auto CreateCmdList(RhiQueueType queueType) -> RhiCmdList;
+    void NameCmdList(RhiCmdList cmd, std::string_view name);
+    void DestroyCmdList(RhiCmdList cmd);
+    auto CmdSetCheckpoint(RhiCmdList cmd, uint64_t data) -> uint64_t;
+    auto GetLastCheckpointData(RhiQueueType queueType) -> uint64_t;
+    auto GetDeviceQueue(RhiQueueType queueType) -> DeviceQueue &;
+
+    void PassBegin(RhiPassDesc desc);
+    void PassEnd(RhiPassDesc desc);
+
+    auto CreateShader(const RhiShaderDesc &desc) -> RhiShader;
+    void DestroyShader(RhiShader shader);
+
+    auto CreateGraphicsPipeline(const RhiGraphicsPipelineDesc &desc) -> RhiGraphicsPipeline;
+    void NameGraphicsPipeline(RhiGraphicsPipeline pipeline, std::string_view name);
+    void DestroyGraphicsPipeline(RhiGraphicsPipeline pipeline);
+    void CmdBindGraphicsPipeline(RhiCmdList cmd, RhiGraphicsPipeline pipeline);
+    void CmdPushGraphicsConstants(RhiCmdList cmd, uint32_t offset, RhiShaderStage stage, ByteView data);
+    void CmdBindVertexBuffers(RhiCmdList cmd, uint32_t firstBinding, std::span<const RhiBuffer> buffers,
+                              std::span<const uint32_t> offsets);
+    void CmdDraw(RhiCmdList cmd, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,
+                 uint32_t firstInstance);
+    auto GetVertexFormatSize(RhiVertexFormat format) -> uint32_t;
+
+    auto CreateDescriptorSetLayout(const RhiDescriptorSetLayoutDesc &desc) -> RhiDescriptorSetLayout;
+    void DestroyDescriptorSetLayout(RhiDescriptorSetLayout layout);
+    auto CreateDescriptorSet(RhiDescriptorSetLayout layout) -> RhiDescriptorSet;
+    void WriteDescriptors(std::span<const RhiDescriptorWriteDesc> writes);
+    void DestroyDescriptorSet(RhiDescriptorSet bindGroup);
+    void CmdBindGraphicsBindGroup(RhiCmdList cmd, uint32_t setIndex, RhiDescriptorSet bindGroup,
+                                  std::span<const uint32_t> dynamicOffsets);
+
+    void CreateSwapchain();
+    auto GetBackbufferTexture() -> RhiTexture;
+
+    void WriteDescriptorTables();
+    void BindDescriptorTables(RhiCmdList cmd);
+
+  private:
+#if 0
+    HandlePool<RhiDescriptorSetLayout, VulkanDescriptorSetLayoutData, 16> m_DescriptorSetLayouts;
+    HandlePool<RhiDescriptorSet, VulkanDescriptorSetData, 16> m_DescriptorSets;
+#endif
+
+    HandlePool<RhiCmdList, VulkanCmdListData, 16> m_CmdLists;
+
+    HandlePool<RhiShader, VkShaderModule, 16> m_Shaders;
+    HandlePool<RhiGraphicsPipeline, VulkanPipelineData, 16> m_GraphicsPipelines;
+
+    HandlePool<RhiBuffer, VulkanBufferData, 16> m_Buffers;
+    HandlePool<RhiBuffer, VulkanBufferViewData, 16> m_CBVs;
+
+    HandlePool<RhiTexture, VulkanTextureData, 128> m_Textures;
+    HandlePool<RhiTextureView, VulkanTextureViewData, 128> m_TextureViews;
+
+    HandlePool<RhiSampler, VulkanSamplerData, 16> m_Samplers;
+
+    VkAllocationCallbacks *m_Alloc;
+
+    RhiFlags m_Flags;
+    RhiLimits m_Limits;
+
+    auto CbvOffset(uint32_t offset) -> uint32_t
+    {
+        return AlignedUp(offset, m_PhysDevProps.limits.minUniformBufferOffsetAlignment);
+    }
+
+    VkInstance m_Instance;
+    VkDevice m_Dev;
+    VkPhysicalDevice m_PhysDev;
+    VkPhysicalDeviceProperties m_PhysDevProps;
+    VkPhysicalDeviceMemoryProperties m_PhysDevMemProps;
+    VkDescriptorPool m_DescriptorPool;
+
+    struct DescriptorTable
+    {
+        VkDescriptorSetLayout layout;
+        VkDescriptorSet set;
+    };
+
+    DescriptorTable m_ConstantsDescriptorTable;
+    struct
+    {
+        RhiBuffer perFrame;
+        RhiBuffer perPass;
+        RhiBuffer perDrawSmall;
+        RhiBuffer perDrawLarge;
+    } m_ConstantsBuffers;
+
+    DescriptorTable m_TexturesDescriptorTable;
+    DescriptorTable m_SamplersDescriptorTable;
+    DescriptorTable m_CBVsDescriptorTable;
+
+    PlatformWindow m_Window;
+    VkSurfaceKHR m_Surface;
+    VkSwapchainKHR m_Swapchain;
+
+    uint32_t m_SwapchainTextureIndex;
+    uint32_t m_SwapchainTexturesCount;
+    std::array<RhiTexture, kRhiMaxNumSwapchainTextures> m_SwapchainTextures;
+    std::array<VkSemaphore, kRhiMaxNumSwapchainTextures> m_RenderFinishedSemaphores;
+    std::array<VkSemaphore, kRhiMaxNumFramesInFlight> m_SwapchainAcquireSemaphores;
+
+    DeviceQueue m_GraphicsQueue;
+    uint32_t m_FrameIndex;
+    std::array<RhiCmdList, kRhiMaxNumFramesInFlight> m_GraphicsQueueCmd;
+    std::array<uint64_t, kRhiMaxNumFramesInFlight> m_GraphicsQueueCmdDone;
+
+    DeviceQueue m_TransferQueue;
+    RhiCmdList m_TransferQueueCmd;
+    uint64_t m_TransferQueueCmdDone;
+};
+
+} // namespace nyla

@@ -1,12 +1,17 @@
 #include "nyla/spirview/spirview.h"
-#include "absl/log/check.h"
+#include "nyla/commons/assert.h"
 #include "nyla/rhi/rhi_shader.h"
+#include <array>
 #include <cstdint>
 #include <span>
 #include <variant>
 
-#define SPV_ENABLE_UTILITY_CODE
+#define spv_enable_utility_code
+#if defined(__linux__)
 #include <spirv/unified1/spirv.hpp>
+#else
+#include <spirv-headers/spirv.hpp>
+#endif
 
 namespace nyla
 {
@@ -16,18 +21,18 @@ namespace spirview_internal
 
 struct SpirvTypeIdState
 {
-    uint32_t typeWidth = -1;
-    uint32_t typeSignedness = -1;
-    uint32_t block = -1;
+    uint32_t typeWidth = (uint32_t)-1;
+    uint32_t typeSignedness = (uint32_t)-1;
+    uint32_t block = (uint32_t)-1;
 };
 
 struct SpirvVarIdState
 {
-    uint32_t varType = -1;
+    uint32_t varType = (uint32_t)-1;
     spv::StorageClass storageClass = spv::StorageClass::StorageClassMax;
-    uint32_t set = -1;
-    uint32_t binding = -1;
-    uint32_t location = -1;
+    uint32_t set = (uint32_t)-1;
+    uint32_t binding = (uint32_t)-1;
+    uint32_t location = (uint32_t)-1;
 };
 
 using SpirvIdState = std::variant<std::monostate, SpirvTypeIdState, SpirvVarIdState>;
@@ -169,7 +174,7 @@ auto SpirviewReflect(std::span<const uint32_t> spirv, SpirviewReflectResult *res
 {
     using namespace spirview_internal;
 
-    CHECK_EQ(spirv[0], spv::MagicNumber);
+    NYLA_ASSERT(spirv[0] == spv::MagicNumber);
 
     const uint32_t headerVersionMinor = (spirv[1] >> 8) & 0xFF;
     const uint32_t headerVersionMajor = (spirv[1] >> 16) & 0xFF;
@@ -184,7 +189,7 @@ auto SpirviewReflect(std::span<const uint32_t> spirv, SpirviewReflectResult *res
 
         const auto op = spv::Op(word & spv::OpCodeMask);
         const uint16_t wordCount = word >> spv::WordCountShift;
-        CHECK(wordCount);
+        NYLA_ASSERT(wordCount);
 
         ProcessOp(state, op, std::span{spirv.data() + i + 1, static_cast<uint16_t>(wordCount - 1)});
         i += wordCount;
@@ -200,7 +205,7 @@ auto SpirviewReflect(std::span<const uint32_t> spirv, SpirviewReflectResult *res
             auto &type = std::get<SpirvTypeIdState>(variant);
             auto &resultType = result->records[id];
 
-            CHECK(std::holds_alternative<std::monostate>(resultType));
+            NYLA_ASSERT(std::holds_alternative<std::monostate>(resultType));
             resultType = SpirviewType{
                 .block = static_cast<bool>(type.block),
             };
@@ -234,7 +239,7 @@ auto SpirviewReflect(std::span<const uint32_t> spirv, SpirviewReflectResult *res
 
             auto &resultResource = result->records[id];
 
-            CHECK(std::holds_alternative<std::monostate>(resultResource));
+            NYLA_ASSERT(std::holds_alternative<std::monostate>(resultResource));
             resultResource = SpirviewResource{
                 .typeId = var.varType,
                 .kind = SpvStorageClassToSpirviewResourceKind(var.storageClass),

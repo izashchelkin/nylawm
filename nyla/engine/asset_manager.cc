@@ -1,10 +1,10 @@
-#include "nyla/engine/asset_manager.h"
-#include "absl/log/check.h"
-#include "absl/log/log.h"
 #include "nyla/commons/containers/inline_vec.h"
 #include "nyla/commons/handle_pool.h"
+#include "nyla/commons/log.h"
+#include "nyla/engine/asset_manager.h"
 #include "nyla/engine/engine.h"
 #include "nyla/engine/staging_buffer.h"
+#include "nyla/rhi/rhi.h"
 #include "nyla/rhi/rhi_cmdlist.h"
 #include "nyla/rhi/rhi_descriptor.h"
 #include "nyla/rhi/rhi_pipeline.h"
@@ -13,7 +13,6 @@
 #include "nyla/rhi/rhi_texture.h"
 #include "third_party/stb/stb_image.h"
 #include <cstdint>
-#include <libintl.h>
 
 namespace nyla
 {
@@ -21,7 +20,7 @@ namespace nyla
 void AssetManager::Init()
 {
     static bool inited = false;
-    CHECK(!inited);
+    NYLA_ASSERT(!inited);
     inited = true;
 
     //
@@ -42,11 +41,11 @@ void AssetManager::Init()
             .stageFlags = RhiShaderStage::Pixel,
         },
     };
-    m_DescriptorSetLayout = RhiCreateDescriptorSetLayout(RhiDescriptorSetLayoutDesc{
+    m_DescriptorSetLayout = g_Rhi->CreateDescriptorSetLayout(RhiDescriptorSetLayoutDesc{
         .descriptors = descriptors,
     });
 
-    m_DescriptorSet = RhiCreateDescriptorSet(m_DescriptorSetLayout);
+    m_DescriptorSet = g_Rhi->CreateDescriptorSet(m_DescriptorSetLayout);
 
     //
 
@@ -55,7 +54,7 @@ void AssetManager::Init()
 
     auto addSampler = [this, &descriptorWrites](SamplerType samplerType, RhiFilter filter,
                                                 RhiSamplerAddressMode addressMode) -> void {
-        RhiSampler sampler = RhiCreateSampler({
+        RhiSampler sampler = g_Rhi->CreateSampler({
             .minFilter = filter,
             .magFilter = filter,
             .addressModeU = addressMode,
@@ -79,7 +78,7 @@ void AssetManager::Init()
     addSampler(SamplerType::NearestClamp, RhiFilter::Nearest, RhiSamplerAddressMode::ClampToEdge);
     addSampler(SamplerType::NearestRepeat, RhiFilter::Nearest, RhiSamplerAddressMode::Repeat);
 
-    RhiWriteDescriptors(descriptorWrites);
+    g_Rhi->WriteDescriptors(descriptorWrites);
 }
 
 auto AssetManager::GetDescriptorSetLayout() -> RhiDescriptorSetLayout
@@ -89,7 +88,7 @@ auto AssetManager::GetDescriptorSetLayout() -> RhiDescriptorSetLayout
 
 void AssetManager::BindDescriptorSet(RhiCmdList cmd)
 {
-    RhiCmdBindGraphicsBindGroup(cmd, 1, m_DescriptorSet, {});
+    g_Rhi->CmdBindGraphicsBindGroup(cmd, 1, m_DescriptorSet, {});
 }
 
 void AssetManager::Upload(RhiCmdList cmd)
@@ -102,49 +101,64 @@ void AssetManager::Upload(RhiCmdList cmd)
         if (!slot.used)
             continue;
 
-        TextureData &textureData = slot.data;
-        if (!textureData.needsUpload)
+        TextureData &textureAssetData = slot.data;
+        if (!textureAssetData.needsUpload)
             continue;
 
-        void *data = stbi_load(textureData.path.c_str(), (int *)&textureData.width, (int *)&textureData.height,
-                               (int *)&textureData.channels, STBI_rgb_alpha);
-        CHECK(data) << "stbi_load failed for '" << textureData.path << "': " << stbi_failure_reason();
+        void *data = stbi_load(textureAssetData.path.c_str(), (int *)&textureAssetData.width,
+                               (int *)&textureAssetData.height, (int *)&textureAssetData.channels, STBI_rgb_alpha);
+        if (!data)
+        {
+            NYLA_LOG("stbi_load failed for '%s': %s", textureAssetData.path.data(), stbi_failure_reason());
+            NYLA_ASSERT(false);
+        }
 
-        textureData.texture = RhiCreateTexture({
-            .width = textureData.width,
-            .height = textureData.height,
+        const RhiTexture texture = g_Rhi->CreateTexture(RhiTextureDesc{
+            .width = textureAssetData.width,
+            .height = textureAssetData.height,
             .memoryUsage = RhiMemoryUsage::GpuOnly,
             .usage = RhiTextureUsage::TransferDst | RhiTextureUsage::ShaderSampled,
             .format = RhiTextureFormat::R8G8B8A8_sRGB,
         });
-        const RhiTexture texture = textureData.texture;
+        textureAssetData.texture = texture;
+
+        const RhiTextureView textureView = g_Rhi->CreateTextureView(RhiTextureViewDesc{
+            .texture = texture,
+        });
+        textureAssetData.textureView = textureView;
 
         descriptorWrites.emplace_back(RhiDescriptorWriteDesc{
             .set = m_DescriptorSet,
             .binding = kTexturesDescriptorBinding,
             .arrayIndex = i,
             .type = RhiBindingType::Texture,
-            .resourceBinding = {.texture = {.texture = texture}},
+            .resourceBinding =
+                RhiDescriptorResourceBinding{
+                    .texture =
+                        RhiTextureBinding{
+                            .textureView = textureView,
+                        },
+                },
         });
 
-        RhiCmdTransitionTexture(cmd, texture, RhiTextureState::TransferDst);
+        g_Rhi->CmdTransitionTexture(cmd, texture, RhiTextureState::TransferDst);
 
-        const uint32_t size = textureData.width * textureData.height * textureData.channels;
+        const uint32_t size = textureAssetData.width * textureAssetData.height * textureAssetData.channels;
         char *uploadMemory = StagingBufferCopyIntoTexture(cmd, g_StagingBuffer, texture, size);
         memcpy(uploadMemory, data, size);
 
         free(data);
 
         // TODO: this barrier does not need to be here
-        RhiCmdTransitionTexture(cmd, texture, RhiTextureState::ShaderRead);
+        g_Rhi->CmdTransitionTexture(cmd, texture, RhiTextureState::ShaderRead);
 
-        LOG(INFO) << "Uploading '" << textureData.path << "'";
+        NYLA_LOG("Uploading '%s'", (const char *)textureAssetData.path.data());
 
-        textureData.needsUpload = false;
+        textureAssetData.needsUpload = false;
     }
 
     if (!descriptorWrites.empty())
-        RhiWriteDescriptors(descriptorWrites);
+        g_Rhi->WriteDescriptors(descriptorWrites);
 }
 
 auto AssetManager::DeclareTexture(std::string_view path) -> Texture
@@ -154,5 +168,7 @@ auto AssetManager::DeclareTexture(std::string_view path) -> Texture
         .needsUpload = true,
     });
 }
+
+AssetManager *g_AssetManager = new AssetManager{};
 
 } // namespace nyla

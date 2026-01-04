@@ -24,6 +24,8 @@ target_include_directories(${TARGET}
 target_link_libraries(${TARGET}
     PUBLIC
         nyla::platform
+        nyla::platform::key_resolver
+        nyla::platform::dir_watch
         nyla::rhi
         nyla::spirview
         stb_image
@@ -48,4 +50,3 @@ target_link_libraries(${TARGET_DEBUG_TEXT_RENDERER}
     PUBLIC
         nyla::spirview
 )
-

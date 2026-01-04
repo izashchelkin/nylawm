@@ -7,6 +7,7 @@
 #include "nyla/rhi/rhi_sampler.h"
 #include "nyla/rhi/rhi_texture.h"
 #include <cstdint>
+#include <string>
 
 namespace nyla
 {
@@ -46,6 +47,7 @@ class AssetManager
     {
         std::string path;
         RhiTexture texture;
+        RhiTextureView textureView;
         uint32_t width = 0;
         uint32_t height = 0;
         uint32_t channels = 0;
@@ -62,5 +64,7 @@ class AssetManager
     RhiDescriptorSetLayout m_DescriptorSetLayout;
     RhiDescriptorSet m_DescriptorSet;
 };
+
+extern AssetManager *g_AssetManager;
 
 } // namespace nyla

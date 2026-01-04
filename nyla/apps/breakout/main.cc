@@ -4,46 +4,42 @@
 #include "nyla/engine/debug_text_renderer.h"
 #include "nyla/engine/engine.h"
 #include "nyla/platform/platform.h"
+#include "nyla/rhi/rhi.h"
 #include "nyla/rhi/rhi_cmdlist.h"
 #include "nyla/rhi/rhi_texture.h"
+#include <format>
 
 namespace nyla
 {
 
-static auto Main() -> int
+auto PlatformMain() -> int
 {
     LoggingInit();
     SigIntCoreDump();
 
-    PlatformInit({
-        .keyboardInput = true,
-        .mouseInput = false,
+    g_Platform->Init({
+        .enabledFeatures = PlatformFeature::KeyboardInput,
     });
-    PlatformWindow window = PlatformCreateWindow();
+    PlatformWindow window = g_Platform->CreateWin();
 
-    EngineInit({.window = window});
+    g_Engine->Init({.window = window});
 
-    BreakoutInit();
+    GameInit();
 
-    while (!EngineShouldExit())
+    while (!g_Engine->ShouldExit())
     {
-        const auto [cmd, dt, fps] = EngineFrameBegin();
+        const auto [cmd, dt, fps] = g_Engine->FrameBegin();
         DebugText(500, 10, std::format("fps={}", fps));
 
-        BreakoutProcess(cmd, dt);
+        GameProcess(cmd, dt);
 
-        RhiTexture colorTarget = RhiGetBackbufferTexture();
-        BreakoutRenderGame(cmd, colorTarget);
+        RhiTexture colorTarget = g_Rhi->GetBackbufferTexture();
+        GameRender(cmd, colorTarget);
 
-        EngineFrameEnd();
+        g_Engine->FrameEnd();
     }
 
     return 0;
 }
 
 } // namespace nyla
-
-auto main() -> int
-{
-    return nyla::Main();
-}

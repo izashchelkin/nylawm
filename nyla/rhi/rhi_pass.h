@@ -7,11 +7,8 @@ namespace nyla
 
 struct RhiPassDesc
 {
-    RhiTexture colorTarget;
+    RhiTextureView colorTarget;
     RhiTextureState state;
 };
-
-void RhiPassBegin(RhiPassDesc);
-void RhiPassEnd(RhiPassDesc);
 
 } // namespace nyla

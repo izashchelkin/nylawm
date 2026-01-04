@@ -15,8 +15,6 @@
 #include "nyla/rhi/rhi_shader.h"
 #include "nyla/rhi/rhi_texture.h"
 #include <cstdint>
-#include <sys/types.h>
-#include <unistd.h>
 
 namespace nyla
 {
@@ -77,7 +75,7 @@ auto CreateRenderer2D() -> Renderer2D *
             .stageFlags = RhiShaderStage::Vertex | RhiShaderStage::Pixel,
         },
     };
-    renderer->descriptorSetLayout = RhiCreateDescriptorSetLayout(RhiDescriptorSetLayoutDesc{
+    renderer->descriptorSetLayout = g_Rhi->CreateDescriptorSetLayout(RhiDescriptorSetLayoutDesc{
         .descriptors = descriptorLayouts,
     });
 
@@ -125,32 +123,32 @@ auto CreateRenderer2D() -> Renderer2D *
         .colorTargetFormatsCount = 1,
         .colorTargetFormats =
             {
-                RhiGetTextureInfo(RhiGetBackbufferTexture()).format,
+                g_Rhi->GetTextureInfo(g_Rhi->GetBackbufferTexture()).format,
             },
         .pushConstantSize = sizeof(Scene),
         .cullMode = RhiCullMode::None,
         .frontFace = RhiFrontFace::CCW,
     };
 
-    renderer->pipeline = RhiCreateGraphicsPipeline(pipelineDesc);
+    renderer->pipeline = g_Rhi->CreateGraphicsPipeline(pipelineDesc);
 
     constexpr uint32_t kVertexBufferSize = 1 << 20;
-    renderer->vertexBuffer = RhiCreateBuffer(RhiBufferDesc{
+    renderer->vertexBuffer = g_Rhi->CreateBuffer(RhiBufferDesc{
         .size = kVertexBufferSize,
         .bufferUsage = RhiBufferUsage::Vertex | RhiBufferUsage::CopyDst,
         .memoryUsage = RhiMemoryUsage::GpuOnly,
     });
 
-    for (uint32_t i = 0; i < RhiGetNumFramesInFlight(); ++i)
+    for (uint32_t i = 0; i < g_Rhi->GetNumFramesInFlight(); ++i)
     {
         constexpr uint32_t kDynamicUniformBufferSize = 1 << 20;
-        renderer->dynamicUniformBuffer[i] = RhiCreateBuffer(RhiBufferDesc{
+        renderer->dynamicUniformBuffer[i] = g_Rhi->CreateBuffer(RhiBufferDesc{
             .size = kDynamicUniformBufferSize,
             .bufferUsage = RhiBufferUsage::Uniform,
             .memoryUsage = RhiMemoryUsage::CpuToGpu,
         });
 
-        renderer->descriptorSets[i] = RhiCreateDescriptorSet(renderer->descriptorSetLayout);
+        renderer->descriptorSets[i] = g_Rhi->CreateDescriptorSet(renderer->descriptorSetLayout);
 
         const std::array<RhiDescriptorWriteDesc, 1> descriptorWrites{
             RhiDescriptorWriteDesc{
@@ -164,7 +162,7 @@ auto CreateRenderer2D() -> Renderer2D *
                                                                .range = sizeof(EntityUbo)}},
             },
         };
-        RhiWriteDescriptors(descriptorWrites);
+        g_Rhi->WriteDescriptors(descriptorWrites);
     }
 
     return renderer;
@@ -175,7 +173,7 @@ void Renderer2DFrameBegin(RhiCmdList cmd, Renderer2D *renderer, GpuStagingBuffer
     static bool uploadedVertices = false;
     if (!uploadedVertices)
     {
-        RhiCmdTransitionBuffer(cmd, renderer->vertexBuffer, RhiBufferState::CopyDst);
+        g_Rhi->CmdTransitionBuffer(cmd, renderer->vertexBuffer, RhiBufferState::CopyDst);
 
         char *uploadMemory =
             StagingBufferCopyIntoBuffer(cmd, stagingBuffer, renderer->vertexBuffer, 0, 6 * sizeof(VSInput));
@@ -212,7 +210,7 @@ void Renderer2DFrameBegin(RhiCmdList cmd, Renderer2D *renderer, GpuStagingBuffer
             },
         };
 
-        RhiCmdTransitionBuffer(cmd, renderer->vertexBuffer, RhiBufferState::ShaderRead);
+        g_Rhi->CmdTransitionBuffer(cmd, renderer->vertexBuffer, RhiBufferState::ShaderRead);
 
         uploadedVertices = true;
     }
@@ -221,10 +219,10 @@ void Renderer2DFrameBegin(RhiCmdList cmd, Renderer2D *renderer, GpuStagingBuffer
 void Renderer2DRect(RhiCmdList cmd, Renderer2D *renderer, float x, float y, float width, float height, float4 color,
                     uint32_t textureIndex)
 {
-    const uint32_t frameIndex = RhiGetFrameIndex();
+    const uint32_t frameIndex = g_Rhi->GetFrameIndex();
 
-    AlignUp(renderer->dymamicUniformBufferWritten, RhiGetMinUniformBufferOffsetAlignment());
-    auto *p = RhiMapBuffer(renderer->dynamicUniformBuffer[frameIndex]) + renderer->dymamicUniformBufferWritten;
+    AlignUp(renderer->dymamicUniformBufferWritten, g_Rhi->GetMinUniformBufferOffsetAlignment());
+    auto *p = g_Rhi->MapBuffer(renderer->dynamicUniformBuffer[frameIndex]) + renderer->dymamicUniformBufferWritten;
     new (p) EntityUbo{
         .model = float4x4::Translate(float4{x, y, 0, 1}).Mult(float4x4::Scale(float4{width, height, 1, 1})),
         .color = color,
@@ -240,7 +238,7 @@ void Renderer2DRect(RhiCmdList cmd, Renderer2D *renderer, float x, float y, floa
 
 void Renderer2DDraw(RhiCmdList cmd, Renderer2D *renderer, uint32_t width, uint32_t height, float metersOnScreen)
 {
-    RhiCmdBindGraphicsPipeline(cmd, renderer->pipeline);
+    g_Rhi->CmdBindGraphicsPipeline(cmd, renderer->pipeline);
 
     g_AssetManager->BindDescriptorSet(cmd);
 
@@ -263,21 +261,21 @@ void Renderer2DDraw(RhiCmdList cmd, Renderer2D *renderer, uint32_t width, uint32
         .invVp = invVp,
     };
 
-    RhiCmdPushGraphicsConstants(cmd, 0, RhiShaderStage::Vertex | RhiShaderStage::Pixel, ByteViewPtr(&scene));
+    g_Rhi->CmdPushGraphicsConstants(cmd, 0, RhiShaderStage::Vertex | RhiShaderStage::Pixel, ByteViewPtr(&scene));
 
     std::array<RhiBuffer, 1> buffers{renderer->vertexBuffer};
     std::array<uint32_t, 1> offsets{0};
 
-    RhiCmdBindVertexBuffers(cmd, 0, buffers, offsets);
+    g_Rhi->CmdBindVertexBuffers(cmd, 0, buffers, offsets);
 
     renderer->dymamicUniformBufferWritten = 0;
 
-    const uint32_t frameIndex = RhiGetFrameIndex();
+    const uint32_t frameIndex = g_Rhi->GetFrameIndex();
 
     for (uint32_t offset : renderer->pendingDraws)
     {
-        RhiCmdBindGraphicsBindGroup(cmd, 0, renderer->descriptorSets[frameIndex], {&offset, 1});
-        RhiCmdDraw(cmd, 6, 1, 0, 0);
+        g_Rhi->CmdBindGraphicsBindGroup(cmd, 0, renderer->descriptorSets[frameIndex], {&offset, 1});
+        g_Rhi->CmdDraw(cmd, 6, 1, 0, 0);
     }
     renderer->pendingDraws.clear();
 }

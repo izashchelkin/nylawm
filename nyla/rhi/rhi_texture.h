@@ -50,6 +50,10 @@ struct RhiTexture : Handle
 {
 };
 
+struct RhiTextureView : Handle
+{
+};
+
 struct RhiTextureDesc
 {
     uint32_t width;
@@ -59,19 +63,17 @@ struct RhiTextureDesc
     RhiTextureFormat format;
 };
 
+struct RhiTextureViewDesc
+{
+    RhiTexture texture;
+    RhiTextureFormat format;
+};
+
 struct RhiTextureInfo
 {
     uint32_t width;
     uint32_t height;
     RhiTextureFormat format;
 };
-
-auto RhiCreateTexture(RhiTextureDesc) -> RhiTexture;
-void RhiDestroyTexture(RhiTexture);
-auto RhiGetTextureInfo(RhiTexture) -> RhiTextureInfo;
-void RhiCmdTransitionTexture(RhiCmdList, RhiTexture, RhiTextureState);
-void RhiCmdCopyTexture(RhiCmdList cmd, RhiTexture dst, RhiBuffer src, uint32_t srcOffset, uint32_t size);
-
-auto RhiGetBackbufferTexture() -> RhiTexture;
 
 } // namespace nyla
